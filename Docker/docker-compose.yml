@@ -1,0 +1,87 @@
+services:
+  zookeeper:
+    image: quay.io/debezium/zookeeper:${DEBEZIUM_VERSION}
+    container_name: 'zookeeper'
+    ports:
+      - "2181:2181"
+      - "2888:2888"
+      - "3888:3888"
+  kafka:
+    image: quay.io/debezium/kafka:${DEBEZIUM_VERSION}
+    container_name: 'kafka'
+    ports:
+      - "9092:9092"
+    depends_on:
+      - zookeeper
+    environment:
+      - ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT_INTERNAL
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://<tailscale ip of node running docker containers>:9092,PLAINTEXT_INTERNAL://kafka:29092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      - KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,PLAINTEXT_INTERNAL://0.0.0.0:29092
+  postgres_db:
+    image: postgres
+    container_name: 'postgres_db'
+    environment:
+      - POSTGRES_DB=airline
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=Postgres123@
+    ports:
+      - "5432:5432"
+    volumes:
+      - type: bind
+        source: ./postgres/data/
+        target: /table_data
+      - type: bind
+        source: ./postgres/config/postgres.conf
+        target: /etc/postgresql/postgresql.conf
+      - type: bind
+        source: ./postgres/config/pg_hba.conf
+        target: /etc/postgresql/pg_hba.conf
+      - type: bind
+        source: ./postgres/scripts/startup_script.sql
+        target: /docker-entrypoint-initdb.d/startup_script.sql
+    command: >
+      postgres -c config_file=/etc/postgresql/postgresql.conf
+               -c hba_file=/etc/postgresql/pg_hba.conf
+  kafka-connect:
+    image: quay.io/debezium/connect:${DEBEZIUM_VERSION}
+    container_name: 'kafka-connect'
+    ports:
+      - "8083:8083"
+    depends_on:
+      - kafka
+      - postgres_db
+    environment:
+      - BOOTSTRAP_SERVERS=kafka:29092
+      - GROUP_ID=1
+      - CONFIG_STORAGE_TOPIC=my_connect_configs
+      - OFFSET_STORAGE_TOPIC=my_connect_offsets
+      - STATUS_STORAGE_TOPIC=my_connect_statuses
+      - CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE=false
+      - CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE=false
+      - CONNECT_KEY_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+      - CONNECT_VALUE_CONVERTER=org.apache.kafka.connect.json.JsonConverter
+      - CONNECT_PLUGIN_PATH=/kafka/connect
+
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: 'kafka-ui'
+    ports:
+      - "8080:8080"
+    depends_on:
+      - kafka
+      - kafka-connect
+    environment:
+      - DYNAMIC_CONFIG_ENABLED='true'
+      - KAFKA_CLUSTERS_0_NAME=local
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
+      - KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME=connect
+      - KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS=kafka-connect:8083
+
+
+
+
+
+
